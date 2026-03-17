@@ -1,0 +1,6 @@
+# Cache local usada para compilar y ejecutar pruebas sin depender de rutas globales.
+.cache/
+# Toolchain descargado localmente para este workspace.
+.tools/
+# Configuracion local con credenciales reales.
+.env

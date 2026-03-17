@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: tienda-go-api
+    runtime: docker
+    plan: free
+    region: virginia
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: APP_NAME
+        value: tienda-go
+      - key: APP_ENV
+        value: production
+      - key: STORE_DRIVER
+        value: memory
+      - key: APP_SEED_ON_START
+        value: "true"
+      - key: AUTH_TOKEN_TTL
+        value: 12h
+      - key: LOW_STOCK_LIMIT
+        value: "5"
+      - key: APP_CURRENCY
+        value: COP
+      - key: PARTNER_API_BASE_URL
+        value: https://nuplin.com/partner/api/
+      - key: PARTNER_LOGIN_BASE_URL
+        value: https://nuplin.com
+      - key: PARTNER_API_TIMEOUT
+        value: 20s
+      - key: PARTNER_API_SKIP_TLS_VERIFY
+        value: "true"
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "23306"
+      - key: DB_DATABASE
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: PROD_DB_HOST
+        sync: false
+      - key: PROD_DB_PORT
+        value: "3306"
+      - key: PROD_DB_DATABASE
+        sync: false
+      - key: PROD_DB_USERNAME
+        sync: false
+      - key: PROD_DB_PASSWORD
+        sync: false
+      - key: PARTNER_API_USER
+        sync: false
+      - key: PARTNER_API_PASS
+        sync: false
