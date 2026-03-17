@@ -161,6 +161,7 @@ Estas rutas tambien salen del mismo servidor `cmd/store-api`; no hay otro `main.
 
 - `GET /v1/partner-users/details?partnerId=...`
 - `GET /v1/partner-users/by-partner?partner=televvd&limit=...`
+- `GET /v1/partner-users/prod/by-partner?partner=televvd&limit=...`
 - `GET /v1/partner-users/generate-login-token-by-email?email=...`
 - `GET /v1/partner-users/early-deactivation-status?country=...`
 - `POST /v1/partner-users/generate-login-token`
@@ -234,6 +235,17 @@ Invoke-RestMethod `
     Authorization = "Bearer $token"
     'X-Partner-ID' = 'televvd'
     'X-Partner-Country' = 'co'
+  }
+```
+
+Listar usuarios de un partner base usando solo `db_prod`:
+
+```powershell
+Invoke-RestMethod `
+  -Method Get `
+  -Uri 'http://localhost:8091/v1/partner-users/prod/by-partner?partner=televvd&limit=5' `
+  -Headers @{
+    Authorization = "Bearer $token"
   }
 ```
 

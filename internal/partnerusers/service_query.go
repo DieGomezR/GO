@@ -11,8 +11,25 @@ import (
 // ListUsersByPartner lista usuarios de todas las tablas subscriber que
 // correspondan al partner base solicitado.
 func (s *Service) ListUsersByPartner(ctx context.Context, req ListUsersByPartnerRequest, authUser AuthUser) (ListUsersByPartnerResult, error) {
-	if err := ensureAuthUser(authUser); err != nil {
-		return ListUsersByPartnerResult{}, err
+	return s.listUsersByPartner(ctx, req, true, authUser)
+}
+
+// ListUsersByPartnerFromProd expone una consulta que solo depende de db_prod.
+// Se usa en despliegues donde la base app/mysql no es accesible.
+func (s *Service) ListUsersByPartnerFromProd(ctx context.Context, req ListUsersByPartnerRequest) (ListUsersByPartnerResult, error) {
+	return s.listUsersByPartner(ctx, req, false, AuthUser{})
+}
+
+func (s *Service) listUsersByPartner(
+	ctx context.Context,
+	req ListUsersByPartnerRequest,
+	requirePartnerAuth bool,
+	authUser AuthUser,
+) (ListUsersByPartnerResult, error) {
+	if requirePartnerAuth {
+		if err := ensureAuthUser(authUser); err != nil {
+			return ListUsersByPartnerResult{}, err
+		}
 	}
 	if strings.TrimSpace(req.Partner) == "" {
 		return ListUsersByPartnerResult{}, fmt.Errorf("%w: partner is required", ErrValidation)

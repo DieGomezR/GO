@@ -66,6 +66,35 @@ func Open(cfg Config) (*Repositories, error) {
 	}, nil
 }
 
+// OpenPartnerOnly inicializa solo la conexion a db_prod para endpoints de
+// consulta que no dependen de la base app/mysql.
+func OpenPartnerOnly(cfg Config) (*Repositories, error) {
+	cfg = cfg.WithDefaults()
+	if cfg.PartnerDSN == "" {
+		return nil, fmt.Errorf("mysqlrepo: PartnerDSN is required")
+	}
+
+	partnerDB, err := sql.Open("mysql", cfg.PartnerDSN)
+	if err != nil {
+		return nil, fmt.Errorf("mysqlrepo: open partner db: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.ConnectTimeout)
+	defer cancel()
+
+	if err := partnerDB.PingContext(ctx); err != nil {
+		_ = partnerDB.Close()
+		return nil, fmt.Errorf("mysqlrepo: ping partner db: %w", err)
+	}
+
+	return &Repositories{
+		PartnerDB:   partnerDB,
+		ISPs:        &ISPRepository{db: partnerDB, table: cfg.ISPTable},
+		Subscribers: &SubscriberRepository{db: partnerDB},
+		Audits:      &AuditRepository{db: partnerDB, table: cfg.EarlyAuditTable},
+	}, nil
+}
+
 // Close libera ambas conexiones.
 func (r *Repositories) Close() error {
 	var firstErr error

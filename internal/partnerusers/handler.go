@@ -48,6 +48,11 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/partner-users/reactivate", h.handleReactivate)
 }
 
+// RegisterProdOnlyRoutes registra rutas que solo dependen de db_prod.
+func (h *Handler) RegisterProdOnlyRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/partner-users/prod/by-partner", h.handleListUsersByPartnerFromProd)
+}
+
 func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req RegisterRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -142,6 +147,27 @@ func (h *Handler) handleListUsersByPartner(w http.ResponseWriter, r *http.Reques
 	}
 
 	result, err := h.service.ListUsersByPartner(r.Context(), req, h.currentUser(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) handleListUsersByPartnerFromProd(w http.ResponseWriter, r *http.Request) {
+	req := ListUsersByPartnerRequest{
+		Partner: r.URL.Query().Get("partner"),
+	}
+	if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+		limit, err := parseInt64(rawLimit)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		req.Limit = int(limit)
+	}
+
+	result, err := h.service.ListUsersByPartnerFromProd(r.Context(), req)
 	if err != nil {
 		writeError(w, err)
 		return

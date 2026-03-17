@@ -58,6 +58,7 @@ Hay dos grupos de endpoints:
 | POST | `/v1/partner-users/activate-channels` | Activa canales adicionales | Usa partner API |
 | GET | `/v1/partner-users/details?partnerId=...` | Devuelve detalle del usuario, paquete y dispositivos | Validado con MySQL real y partner API real |
 | GET | `/v1/partner-users/by-partner?partner=televvd&limit=...` | Lista usuarios de un partner base desde tablas `ISP_*_subscribers` | Validado con MySQL real |
+| GET | `/v1/partner-users/prod/by-partner?partner=televvd&limit=...` | Lista usuarios de un partner base usando solo `db_prod` | No depende de `moderntv` ni de la API externa |
 | GET | `/v1/partner-users/early-deactivation-status?country=...` | Evalua si se permite desactivacion temprana | Usa policy Go simplificada |
 | POST | `/v1/partner-users/deactivate` | Desactiva un usuario o programa la desactivacion | Si necesita scheduler diferido, hoy responde error de configuracion |
 | POST | `/v1/partner-users/upload` | Recibe archivo JSON para carga masiva | Requiere storage y scheduler; hoy no estan integrados |
@@ -82,6 +83,7 @@ Verificados:
 
 - `GET /v1/partner-users/details`
 - `GET /v1/partner-users/by-partner`
+- `GET /v1/partner-users/prod/by-partner`
 - `GET /v1/partner-users/generate-login-token-by-email`
 - `GET /v1/partner-users/early-deactivation-status`
 
@@ -95,4 +97,5 @@ Verificados:
 4. Prueba primero:
    - `GET /v1/partner-users/details?partnerId=starnet_1186`
    - `GET /v1/partner-users/by-partner?partner=televvd&limit=5`
+   - `GET /v1/partner-users/prod/by-partner?partner=televvd&limit=5`
    - `GET /v1/partner-users/generate-login-token-by-email?email=arenas3528@gmail.com`

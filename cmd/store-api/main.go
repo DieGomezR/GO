@@ -141,12 +141,51 @@ func openStore(cfg config.Config) (store.Store, func(), error) {
 }
 
 func buildPartnerUsersRoutes(cfg config.Config, httpAPI *api.API) (http.Handler, func(), error) {
+	if strings.TrimSpace(cfg.PartnerUsersProdDSN) == "" {
+		return nil, func() {}, nil
+	}
+
+	mux := http.NewServeMux()
+	cleanups := make([]func(), 0, 2)
+
+	prodRepos, err := mysqlrepo.OpenPartnerOnly(mysqlrepo.Config{
+		PartnerDSN: cfg.PartnerUsersProdDSN,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanups = append(cleanups, func() {
+		if err := prodRepos.Close(); err != nil {
+			slog.Error("failed to close partner users prod repositories", slog.Any("error", err))
+		}
+	})
+
+	prodOnlyService := partnerusers.NewService(
+		nil,
+		nil,
+		prodRepos.Subscribers,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"",
+	)
+	prodOnlyHandler := partnerusers.NewHandler(prodOnlyService, httpAPI.PartnerUsersCurrentUser)
+	prodOnlyHandler.RegisterProdOnlyRoutes(mux)
+	slog.Info("partner users prod-only routes enabled")
+
 	if strings.TrimSpace(cfg.PartnerUsersAppDSN) == "" ||
-		strings.TrimSpace(cfg.PartnerUsersProdDSN) == "" ||
 		strings.TrimSpace(cfg.PartnerAPIUser) == "" ||
 		strings.TrimSpace(cfg.PartnerAPIPass) == "" ||
 		strings.TrimSpace(cfg.PartnerAPIBaseURL) == "" {
-		return nil, func() {}, nil
+		return mux, func() {
+			for _, cleanup := range cleanups {
+				cleanup()
+			}
+		}, nil
 	}
 
 	repos, err := mysqlrepo.Open(mysqlrepo.Config{
@@ -155,8 +194,18 @@ func buildPartnerUsersRoutes(cfg config.Config, httpAPI *api.API) (http.Handler,
 		UsersTable: "Users",
 	})
 	if err != nil {
-		return nil, nil, err
+		slog.Warn("partner users full routes disabled", slog.Any("error", err))
+		return mux, func() {
+			for _, cleanup := range cleanups {
+				cleanup()
+			}
+		}, nil
 	}
+	cleanups = append(cleanups, func() {
+		if err := repos.Close(); err != nil {
+			slog.Error("failed to close partner users repositories", slog.Any("error", err))
+		}
+	})
 
 	apiClient, err := partnerapi.New(partnerapi.Config{
 		BaseURL:       cfg.PartnerAPIBaseURL,
@@ -166,8 +215,12 @@ func buildPartnerUsersRoutes(cfg config.Config, httpAPI *api.API) (http.Handler,
 		SkipTLSVerify: cfg.PartnerAPISkipTLSVerify,
 	})
 	if err != nil {
-		_ = repos.Close()
-		return nil, nil, err
+		slog.Warn("partner users full routes disabled", slog.Any("error", err))
+		return mux, func() {
+			for _, cleanup := range cleanups {
+				cleanup()
+			}
+		}, nil
 	}
 
 	service := partnerusers.NewService(
@@ -185,12 +238,11 @@ func buildPartnerUsersRoutes(cfg config.Config, httpAPI *api.API) (http.Handler,
 	)
 
 	handler := partnerusers.NewHandler(service, httpAPI.PartnerUsersCurrentUser)
-	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
 	return mux, func() {
-		if err := repos.Close(); err != nil {
-			slog.Error("failed to close partner users repositories", slog.Any("error", err))
+		for _, cleanup := range cleanups {
+			cleanup()
 		}
 	}, nil
 }

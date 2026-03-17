@@ -57,6 +57,45 @@ func TestListUsersByPartnerAggregatesAndSortsResults(t *testing.T) {
 	}
 }
 
+func TestListUsersByPartnerFromProdDoesNotRequirePartnerContext(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(
+		nil,
+		nil,
+		queryTestSubscribers{
+			tables: []string{"ISP_TeleVVD_subscribers"},
+			rowsByTable: map[string][]SubscriberRecord{
+				"ISP_TeleVVD_subscribers": {
+					{PartnerID: "televvd_10", Email: "diez@example.com", Status: "activo"},
+				},
+			},
+		},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"",
+	)
+
+	result, err := service.ListUsersByPartnerFromProd(context.Background(), ListUsersByPartnerRequest{
+		Partner: "televvd",
+		Limit:   5,
+	})
+	if err != nil {
+		t.Fatalf("ListUsersByPartnerFromProd returned error: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected total 1, got %d", result.Total)
+	}
+	if result.Users[0].PartnerID != "televvd_10" {
+		t.Fatalf("expected partnerID televvd_10, got %q", result.Users[0].PartnerID)
+	}
+}
+
 type queryTestSubscribers struct {
 	tables      []string
 	rowsByTable map[string][]SubscriberRecord
