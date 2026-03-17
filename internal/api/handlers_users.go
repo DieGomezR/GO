@@ -2,8 +2,7 @@
 package api
 
 import (
-	"net/http"
-
+	"github.com/gofiber/fiber/v2"
 	"tienda-go/internal/domain"
 	"tienda-go/internal/service"
 )
@@ -17,11 +16,10 @@ type createUserRequest struct {
 }
 
 // handleCreateUser crea una cuenta usando el servicio de usuarios.
-func (a *API) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleCreateUser(c *fiber.Ctx) error {
 	var request createUserRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, err)
-		return
+	if err := decodeJSON(c, &request); err != nil {
+		return writeError(c, err)
 	}
 
 	user, err := a.users.CreateUser(service.CreateUserInput{
@@ -31,31 +29,28 @@ func (a *API) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Role:     request.Role,
 	})
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusCreated, presentUser(user))
+	return writeData(c, fiber.StatusCreated, presentUser(user))
 }
 
 // handleListUsers devuelve todos los usuarios visibles para roles administrativos.
-func (a *API) handleListUsers(w http.ResponseWriter, _ *http.Request) {
+func (a *API) handleListUsers(c *fiber.Ctx) error {
 	users, err := a.users.ListUsers()
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusOK, presentUsers(users))
+	return writeData(c, fiber.StatusOK, presentUsers(users))
 }
 
 // handleDashboardSummary expone el resumen agregado de la tienda.
-func (a *API) handleDashboardSummary(w http.ResponseWriter, _ *http.Request) {
+func (a *API) handleDashboardSummary(c *fiber.Ctx) error {
 	summary, err := a.dashboard.Summary(a.cfg.LowStockLimit)
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusOK, presentSummary(summary))
+	return writeData(c, fiber.StatusOK, presentSummary(summary))
 }

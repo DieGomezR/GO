@@ -24,7 +24,7 @@ El proyecto cubre un flujo tipico de negocio:
 
 - Go `1.26`
 - `toolchain go1.26.1`
-- `net/http` con `ServeMux` moderno
+- `Fiber v2` como framework HTTP
 - `log/slog` para logging
 - almacenamiento seleccionable: memoria o MySQL
 

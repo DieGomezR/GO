@@ -2,8 +2,7 @@
 package api
 
 import (
-	"net/http"
-
+	"github.com/gofiber/fiber/v2"
 	"tienda-go/internal/domain"
 	"tienda-go/internal/service"
 )
@@ -34,11 +33,10 @@ type adjustInventoryRequest struct {
 }
 
 // handleCreateProduct delega la alta de productos al servicio de catalogo.
-func (a *API) handleCreateProduct(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleCreateProduct(c *fiber.Ctx) error {
 	var request createProductRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, err)
-		return
+	if err := decodeJSON(c, &request); err != nil {
+		return writeError(c, err)
 	}
 
 	product, err := a.products.CreateProduct(service.CreateProductInput{
@@ -47,25 +45,23 @@ func (a *API) handleCreateProduct(w http.ResponseWriter, r *http.Request) {
 		Description:  request.Description,
 		PriceCents:   request.PriceCents,
 		InitialStock: request.InitialStock,
-		ActorID:      currentUser(r).ID,
+		ActorID:      currentUser(c).ID,
 	})
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusCreated, presentProduct(product))
+	return writeData(c, fiber.StatusCreated, presentProduct(product))
 }
 
 // handleUpdateProduct edita atributos del producto sin tocar el historial.
-func (a *API) handleUpdateProduct(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleUpdateProduct(c *fiber.Ctx) error {
 	var request updateProductRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, err)
-		return
+	if err := decodeJSON(c, &request); err != nil {
+		return writeError(c, err)
 	}
 
-	product, err := a.products.UpdateProduct(r.PathValue("id"), service.UpdateProductInput{
+	product, err := a.products.UpdateProduct(c.Params("id"), service.UpdateProductInput{
 		SKU:         request.SKU,
 		Name:        request.Name,
 		Description: request.Description,
@@ -73,64 +69,58 @@ func (a *API) handleUpdateProduct(w http.ResponseWriter, r *http.Request) {
 		Active:      request.Active,
 	})
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusOK, presentProduct(product))
+	return writeData(c, fiber.StatusOK, presentProduct(product))
 }
 
 // handleListProducts devuelve el catalogo completo.
-func (a *API) handleListProducts(w http.ResponseWriter, _ *http.Request) {
+func (a *API) handleListProducts(c *fiber.Ctx) error {
 	products, err := a.products.ListProducts()
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusOK, presentProducts(products))
+	return writeData(c, fiber.StatusOK, presentProducts(products))
 }
 
 // handleGetProduct devuelve un producto puntual.
-func (a *API) handleGetProduct(w http.ResponseWriter, r *http.Request) {
-	product, err := a.products.GetProduct(r.PathValue("id"))
+func (a *API) handleGetProduct(c *fiber.Ctx) error {
+	product, err := a.products.GetProduct(c.Params("id"))
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusOK, presentProduct(product))
+	return writeData(c, fiber.StatusOK, presentProduct(product))
 }
 
 // handleAdjustInventory registra entradas o correcciones de stock.
-func (a *API) handleAdjustInventory(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleAdjustInventory(c *fiber.Ctx) error {
 	var request adjustInventoryRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, err)
-		return
+	if err := decodeJSON(c, &request); err != nil {
+		return writeError(c, err)
 	}
 
-	product, err := a.inventory.AdjustStock(r.PathValue("id"), service.AdjustStockInput{
+	product, err := a.inventory.AdjustStock(c.Params("id"), service.AdjustStockInput{
 		Quantity: request.Quantity,
 		Type:     request.Type,
 		Note:     request.Note,
-		ActorID:  currentUser(r).ID,
+		ActorID:  currentUser(c).ID,
 	})
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusOK, presentProduct(product))
+	return writeData(c, fiber.StatusOK, presentProduct(product))
 }
 
 // handleListProductInventory devuelve el historial de movimientos de un producto.
-func (a *API) handleListProductInventory(w http.ResponseWriter, r *http.Request) {
-	movements, err := a.inventory.ListMovements(r.PathValue("id"))
+func (a *API) handleListProductInventory(c *fiber.Ctx) error {
+	movements, err := a.inventory.ListMovements(c.Params("id"))
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusOK, presentInventory(movements))
+	return writeData(c, fiber.StatusOK, presentInventory(movements))
 }

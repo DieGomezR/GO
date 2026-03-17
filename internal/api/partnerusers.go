@@ -1,42 +1,38 @@
 package api
 
 import (
-	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/gofiber/fiber/v2"
+	"tienda-go/internal/domain"
 	"tienda-go/internal/partnerusers"
 )
 
-// PartnerUsersCurrentUser adapta el usuario autenticado de la API principal al
-// shape esperado por el port del controller PHP. Para Postman se completa el
-// contexto partner con headers X-Partner-*.
-func (a *API) PartnerUsersCurrentUser(r *http.Request) partnerusers.AuthUser {
-	storeUser := currentUser(r)
-	actorID, _ := strconv.ParseInt(strings.TrimSpace(r.Header.Get("X-Partner-Actor-ID")), 10, 64)
+// PartnerUsersCurrentUser adapta headers HTTP al shape esperado por el port del
+// controller PHP usando primero el usuario autenticado resuelto por Fiber y
+// luego permitiendo overrides explicitos via headers X-Partner-*.
+func (a *API) PartnerUsersCurrentUser(c *fiber.Ctx) partnerusers.AuthUser {
+	authUser, _ := c.Locals(userContextKey).(domain.User)
+	actorID, _ := strconv.ParseInt(strings.TrimSpace(c.Get("X-Partner-Actor-ID")), 10, 64)
+	if actorID == 0 {
+		actorID, _ = strconv.ParseInt(strings.TrimSpace(authUser.ID), 10, 64)
+	}
 
-	email := firstNonEmptyHeader(
-		r,
-		"X-Partner-Email",
-		"X-User-Email",
+	email := firstNonEmptyValue(
+		strings.TrimSpace(c.Get("X-Partner-Email")),
+		strings.TrimSpace(authUser.Email),
 	)
-	if email == "" {
-		email = storeUser.Email
-	}
 
-	role := firstNonEmptyHeader(r, "X-Partner-Role")
-	if role == "" {
-		role = string(storeUser.Role)
-	}
-
-	country := firstNonEmptyHeader(r, "X-Partner-Country")
+	role := firstNonEmptyValue(strings.TrimSpace(c.Get("X-Partner-Role")), string(authUser.Role))
+	country := strings.TrimSpace(c.Get("X-Partner-Country"))
 	if country == "" {
 		country = "co"
 	}
 
 	return partnerusers.AuthUser{
 		ID:        actorID,
-		PartnerID: firstNonEmptyHeader(r, "X-Partner-ID"),
+		PartnerID: strings.TrimSpace(c.Get("X-Partner-ID")),
 		Email:     email,
 		UserEmail: email,
 		Role:      role,
@@ -44,9 +40,9 @@ func (a *API) PartnerUsersCurrentUser(r *http.Request) partnerusers.AuthUser {
 	}
 }
 
-func firstNonEmptyHeader(r *http.Request, keys ...string) string {
-	for _, key := range keys {
-		value := strings.TrimSpace(r.Header.Get(key))
+func firstNonEmptyValue(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
 		if value != "" {
 			return value
 		}

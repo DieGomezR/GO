@@ -3,8 +3,8 @@ package api
 
 import (
 	"log/slog"
-	"net/http"
 
+	"github.com/gofiber/fiber/v2"
 	"tienda-go/internal/config"
 	"tienda-go/internal/domain"
 	"tienda-go/internal/service"
@@ -20,7 +20,7 @@ type API struct {
 	inventory *service.InventoryService
 	orders    *service.OrderService
 	dashboard *service.DashboardService
-	partner   http.Handler
+	partner   func(router fiber.Router)
 }
 
 // New construye la instancia principal de la capa HTTP.
@@ -47,53 +47,60 @@ func New(
 }
 
 // RegisterRoutes registra las rutas del modulo principal y las opcionales.
-func (a *API) RegisterRoutes(mux *http.ServeMux) {
+func (a *API) RegisterRoutes(app *fiber.App) {
 	// Rutas publicas.
-	mux.HandleFunc("GET /healthz", a.handleHealth)
-	mux.HandleFunc("POST /v1/auth/login", a.handleLogin)
+	app.Get("/healthz", a.handleHealth)
+	app.Post("/v1/auth/login", a.handleLogin)
 
 	// Rutas autenticadas comunes.
-	mux.Handle("POST /v1/auth/logout", a.authenticated(http.HandlerFunc(a.handleLogout)))
-	mux.Handle("GET /v1/me", a.authenticated(http.HandlerFunc(a.handleMe)))
+	app.Post("/v1/auth/logout", a.authenticated(), a.handleLogout)
+	app.Get("/v1/me", a.authenticated(), a.handleMe)
 
 	// Gestion de usuarios y resumen administrativo.
-	mux.Handle("GET /v1/users", a.requireRoles(domain.RoleAdmin, domain.RoleManager)(http.HandlerFunc(a.handleListUsers)))
-	mux.Handle("POST /v1/users", a.requireRoles(domain.RoleAdmin)(http.HandlerFunc(a.handleCreateUser)))
-
-	mux.Handle("GET /v1/dashboard/summary", a.requireRoles(domain.RoleAdmin, domain.RoleManager)(http.HandlerFunc(a.handleDashboardSummary)))
+	app.Get("/v1/users", a.requireRoles(domain.RoleAdmin, domain.RoleManager), a.handleListUsers)
+	app.Post("/v1/users", a.requireRoles(domain.RoleAdmin), a.handleCreateUser)
+	app.Get("/v1/dashboard/summary", a.requireRoles(domain.RoleAdmin, domain.RoleManager), a.handleDashboardSummary)
 
 	// Catalogo e inventario.
-	mux.Handle("GET /v1/products", a.authenticated(http.HandlerFunc(a.handleListProducts)))
-	mux.Handle("GET /v1/products/{id}", a.authenticated(http.HandlerFunc(a.handleGetProduct)))
-	mux.Handle("POST /v1/products", a.requireRoles(domain.RoleAdmin, domain.RoleManager)(http.HandlerFunc(a.handleCreateProduct)))
-	mux.Handle("PUT /v1/products/{id}", a.requireRoles(domain.RoleAdmin, domain.RoleManager)(http.HandlerFunc(a.handleUpdateProduct)))
-	mux.Handle("GET /v1/products/{id}/inventory", a.authenticated(http.HandlerFunc(a.handleListProductInventory)))
-	mux.Handle("POST /v1/products/{id}/inventory", a.requireRoles(domain.RoleAdmin, domain.RoleManager)(http.HandlerFunc(a.handleAdjustInventory)))
+	app.Get("/v1/products", a.authenticated(), a.handleListProducts)
+	app.Get("/v1/products/:id", a.authenticated(), a.handleGetProduct)
+	app.Post("/v1/products", a.requireRoles(domain.RoleAdmin, domain.RoleManager), a.handleCreateProduct)
+	app.Put("/v1/products/:id", a.requireRoles(domain.RoleAdmin, domain.RoleManager), a.handleUpdateProduct)
+	app.Get("/v1/products/:id/inventory", a.authenticated(), a.handleListProductInventory)
+	app.Post("/v1/products/:id/inventory", a.requireRoles(domain.RoleAdmin, domain.RoleManager), a.handleAdjustInventory)
 
 	// Ventas.
-	mux.Handle("GET /v1/orders", a.authenticated(http.HandlerFunc(a.handleListOrders)))
-	mux.Handle("GET /v1/orders/{id}", a.authenticated(http.HandlerFunc(a.handleGetOrder)))
-	mux.Handle("POST /v1/orders", a.requireRoles(domain.RoleAdmin, domain.RoleManager, domain.RoleCashier)(http.HandlerFunc(a.handleCreateOrder)))
+	app.Get("/v1/orders", a.authenticated(), a.handleListOrders)
+	app.Get("/v1/orders/:id", a.authenticated(), a.handleGetOrder)
+	app.Post("/v1/orders", a.requireRoles(domain.RoleAdmin, domain.RoleManager, domain.RoleCashier), a.handleCreateOrder)
 
-	// Port del controller PHP legado.
+	// Port del controller PHP legado, ahora montado tambien sobre Fiber.
 	if a.partner != nil {
-		mux.Handle("/v1/partner-users/", a.authenticated(a.partner))
+		a.partner(app.Group("/v1/partner-users", a.authenticated()))
 	}
 }
 
-// Router registra todas las rutas y compone los middlewares globales.
-func (a *API) Router() http.Handler {
-	mux := http.NewServeMux()
-	a.RegisterRoutes(mux)
-	return a.Wrap(mux)
-}
+// App construye la instancia Fiber completa con middlewares globales.
+func (a *API) App() *fiber.App {
+	app := fiber.New(fiber.Config{
+		DisableStartupMessage: true,
+		ReadTimeout:           a.cfg.ReadTimeout,
+		WriteTimeout:          a.cfg.WriteTimeout,
+	})
 
-// Wrap aplica los middlewares globales de la API sobre cualquier handler.
-func (a *API) Wrap(next http.Handler) http.Handler {
-	return a.logging(a.recoverer(next))
+	app.Use(a.logging())
+	app.Use(a.recoverer())
+	a.RegisterRoutes(app)
+	app.Use(func(c *fiber.Ctx) error {
+		return writeJSON(c, fiber.StatusNotFound, map[string]any{
+			"error": "not found",
+		})
+	})
+
+	return app
 }
 
 // SetPartnerRoutes monta un subrouter adicional para el port de partner users.
-func (a *API) SetPartnerRoutes(handler http.Handler) {
-	a.partner = handler
+func (a *API) SetPartnerRoutes(register func(router fiber.Router)) {
+	a.partner = register
 }

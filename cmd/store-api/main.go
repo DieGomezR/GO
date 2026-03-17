@@ -5,12 +5,13 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"tienda-go/internal/api"
 	"tienda-go/internal/bootstrap"
 	"tienda-go/internal/config"
@@ -65,21 +66,16 @@ func main() {
 		dashboardService,
 	)
 	partnerCleanup := func() {}
-	if partnerMux, cleanup, err := buildPartnerUsersRoutes(cfg, httpAPI); err != nil {
+	if partnerRoutes, cleanup, err := buildPartnerUsersRoutes(cfg, httpAPI); err != nil {
 		logger.Warn("partner users routes disabled", slog.Any("error", err))
-	} else if partnerMux != nil {
-		httpAPI.SetPartnerRoutes(partnerMux)
+	} else if partnerRoutes != nil {
+		httpAPI.SetPartnerRoutes(partnerRoutes)
 		partnerCleanup = cleanup
 		logger.Info("partner users routes enabled")
 	}
 	defer partnerCleanup()
 
-	server := &http.Server{
-		Addr:         cfg.Address,
-		Handler:      httpAPI.Router(),
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
-	}
+	app := httpAPI.App()
 
 	logger.Info("store API ready",
 		slog.String("address", cfg.Address),
@@ -96,26 +92,43 @@ func main() {
 		)
 	}
 
+	serverErrors := make(chan error, 1)
 	go func() {
-		// ListenAndServe bloquea, por eso se ejecuta en una goroutine.
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server stopped unexpectedly", slog.Any("error", err))
-			os.Exit(1)
-		}
+		// Listen bloquea, por eso se ejecuta en una goroutine.
+		serverErrors <- app.Listen(cfg.Address)
 	}()
 
 	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	<-signalContext.Done()
+
+	select {
+	case err := <-serverErrors:
+		if err != nil {
+			logger.Error("server stopped unexpectedly", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return
+	case <-signalContext.Done():
+	}
 
 	// Cuando llega una senal, se intenta apagar el servidor sin cortar requests activas.
 	shutdownContext, cancel := context.WithTimeout(context.Background(), cfg.ShutdownWait)
 	defer cancel()
 
 	logger.Info("shutting down server")
-	if err := server.Shutdown(shutdownContext); err != nil {
+	if err := app.ShutdownWithContext(shutdownContext); err != nil {
 		logger.Error("graceful shutdown failed", slog.Any("error", err))
-		_ = server.Close()
+	}
+
+	select {
+	case err := <-serverErrors:
+		if err != nil {
+			normalized := strings.ToLower(err.Error())
+			if !strings.Contains(normalized, "server closed") && !strings.Contains(normalized, "closed network connection") {
+				logger.Error("server stopped after shutdown", slog.Any("error", err))
+			}
+		}
+	case <-time.After(2 * time.Second):
 	}
 }
 
@@ -140,12 +153,11 @@ func openStore(cfg config.Config) (store.Store, func(), error) {
 	}
 }
 
-func buildPartnerUsersRoutes(cfg config.Config, httpAPI *api.API) (http.Handler, func(), error) {
+func buildPartnerUsersRoutes(cfg config.Config, httpAPI *api.API) (func(router fiber.Router), func(), error) {
 	if strings.TrimSpace(cfg.PartnerUsersProdDSN) == "" {
 		return nil, func() {}, nil
 	}
 
-	mux := http.NewServeMux()
 	cleanups := make([]func(), 0, 2)
 
 	prodRepos, err := mysqlrepo.OpenPartnerOnly(mysqlrepo.Config{
@@ -174,14 +186,16 @@ func buildPartnerUsersRoutes(cfg config.Config, httpAPI *api.API) (http.Handler,
 		"",
 	)
 	prodOnlyHandler := partnerusers.NewHandler(prodOnlyService, httpAPI.PartnerUsersCurrentUser)
-	prodOnlyHandler.RegisterProdOnlyRoutes(mux)
+	prodOnlyRoutes := func(router fiber.Router) {
+		prodOnlyHandler.RegisterProdOnlyRoutes(router)
+	}
 	slog.Info("partner users prod-only routes enabled")
 
 	if strings.TrimSpace(cfg.PartnerUsersAppDSN) == "" ||
 		strings.TrimSpace(cfg.PartnerAPIUser) == "" ||
 		strings.TrimSpace(cfg.PartnerAPIPass) == "" ||
 		strings.TrimSpace(cfg.PartnerAPIBaseURL) == "" {
-		return mux, func() {
+		return prodOnlyRoutes, func() {
 			for _, cleanup := range cleanups {
 				cleanup()
 			}
@@ -195,7 +209,7 @@ func buildPartnerUsersRoutes(cfg config.Config, httpAPI *api.API) (http.Handler,
 	})
 	if err != nil {
 		slog.Warn("partner users full routes disabled", slog.Any("error", err))
-		return mux, func() {
+		return prodOnlyRoutes, func() {
 			for _, cleanup := range cleanups {
 				cleanup()
 			}
@@ -216,7 +230,7 @@ func buildPartnerUsersRoutes(cfg config.Config, httpAPI *api.API) (http.Handler,
 	})
 	if err != nil {
 		slog.Warn("partner users full routes disabled", slog.Any("error", err))
-		return mux, func() {
+		return prodOnlyRoutes, func() {
 			for _, cleanup := range cleanups {
 				cleanup()
 			}
@@ -238,11 +252,13 @@ func buildPartnerUsersRoutes(cfg config.Config, httpAPI *api.API) (http.Handler,
 	)
 
 	handler := partnerusers.NewHandler(service, httpAPI.PartnerUsersCurrentUser)
-	handler.RegisterRoutes(mux)
 
-	return mux, func() {
-		for _, cleanup := range cleanups {
-			cleanup()
-		}
-	}, nil
+	return func(router fiber.Router) {
+			prodOnlyHandler.RegisterProdOnlyRoutes(router)
+			handler.RegisterRoutes(router)
+		}, func() {
+			for _, cleanup := range cleanups {
+				cleanup()
+			}
+		}, nil
 }

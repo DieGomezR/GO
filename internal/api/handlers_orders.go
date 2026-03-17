@@ -2,8 +2,7 @@
 package api
 
 import (
-	"net/http"
-
+	"github.com/gofiber/fiber/v2"
 	"tienda-go/internal/service"
 )
 
@@ -20,11 +19,10 @@ type createOrderRequest struct {
 }
 
 // handleCreateOrder transforma el request HTTP en un caso de uso de venta.
-func (a *API) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleCreateOrder(c *fiber.Ctx) error {
 	var request createOrderRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, err)
-		return
+	if err := decodeJSON(c, &request); err != nil {
+		return writeError(c, err)
 	}
 
 	items := make([]service.CreateOrderItemInput, 0, len(request.Items))
@@ -37,35 +35,32 @@ func (a *API) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	order, err := a.orders.CreateOrder(service.CreateOrderInput{
 		CustomerName: request.CustomerName,
-		CashierID:    currentUser(r).ID,
+		CashierID:    currentUser(c).ID,
 		Items:        items,
 	})
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusCreated, presentOrder(order))
+	return writeData(c, fiber.StatusCreated, presentOrder(order))
 }
 
 // handleListOrders devuelve el historial de ventas.
-func (a *API) handleListOrders(w http.ResponseWriter, _ *http.Request) {
+func (a *API) handleListOrders(c *fiber.Ctx) error {
 	orders, err := a.orders.ListOrders()
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusOK, presentOrders(orders))
+	return writeData(c, fiber.StatusOK, presentOrders(orders))
 }
 
 // handleGetOrder devuelve una orden por ID.
-func (a *API) handleGetOrder(w http.ResponseWriter, r *http.Request) {
-	order, err := a.orders.GetOrder(r.PathValue("id"))
+func (a *API) handleGetOrder(c *fiber.Ctx) error {
+	order, err := a.orders.GetOrder(c.Params("id"))
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusOK, presentOrder(order))
+	return writeData(c, fiber.StatusOK, presentOrder(order))
 }

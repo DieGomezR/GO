@@ -2,88 +2,87 @@
 package api
 
 import (
-	"context"
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"tienda-go/internal/domain"
 )
 
-// contextKey evita colisiones de claves en el contexto HTTP.
-type contextKey string
+const userContextKey = "auth-user"
 
-const userContextKey contextKey = "auth-user"
-
-// authenticated exige un Bearer token valido y guarda el usuario en el contexto.
-func (a *API) authenticated(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := extractBearerToken(r.Header.Get("Authorization"))
+// authenticated exige un Bearer token valido y guarda el usuario en Fiber locals.
+func (a *API) authenticated() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		token := extractBearerToken(c.Get("Authorization"))
 		user, err := a.auth.Authenticate(token)
 		if err != nil {
-			writeError(w, err)
-			return
+			return writeError(c, err)
 		}
 
-		ctx := context.WithValue(r.Context(), userContextKey, user)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+		c.Locals(userContextKey, user)
+		return c.Next()
+	}
 }
 
 // requireRoles combina autenticacion y autorizacion por rol.
-func (a *API) requireRoles(roles ...domain.Role) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return a.authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			user := currentUser(r)
-			for _, role := range roles {
-				if user.Role == role {
-					next.ServeHTTP(w, r)
-					return
-				}
-			}
+func (a *API) requireRoles(roles ...domain.Role) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		token := extractBearerToken(c.Get("Authorization"))
+		user, err := a.auth.Authenticate(token)
+		if err != nil {
+			return writeError(c, err)
+		}
 
-			writeError(w, domain.ErrForbidden)
-		}))
+		c.Locals(userContextKey, user)
+
+		for _, role := range roles {
+			if user.Role == role {
+				return c.Next()
+			}
+		}
+
+		return writeError(c, domain.ErrForbidden)
 	}
 }
 
 // logging mide cada request y la escribe en slog.
-func (a *API) logging(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (a *API) logging() fiber.Handler {
+	return func(c *fiber.Ctx) error {
 		start := time.Now()
-		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		defer func() {
+			a.logger.Info("request completed",
+				slog.String("method", c.Method()),
+				slog.String("path", c.Path()),
+				slog.Int("status", c.Response().StatusCode()),
+				slog.Duration("duration", time.Since(start)),
+			)
+		}()
 
-		next.ServeHTTP(recorder, r)
-
-		a.logger.Info("request completed",
-			slog.String("method", r.Method),
-			slog.String("path", r.URL.Path),
-			slog.Int("status", recorder.status),
-			slog.Duration("duration", time.Since(start)),
-		)
-	})
+		return c.Next()
+	}
 }
 
 // recoverer evita que un panic tumbe todo el servidor.
-func (a *API) recoverer(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (a *API) recoverer() fiber.Handler {
+	return func(c *fiber.Ctx) (err error) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				a.logger.Error("panic recovered", slog.Any("error", recovered))
-				writeJSON(w, http.StatusInternalServerError, map[string]any{
+				err = writeJSON(c, fiber.StatusInternalServerError, map[string]any{
 					"error": "internal server error",
 				})
 			}
 		}()
 
-		next.ServeHTTP(w, r)
-	})
+		return c.Next()
+	}
 }
 
-// currentUser extrae del contexto al usuario ya autenticado por middleware.
-func currentUser(r *http.Request) domain.User {
-	user, _ := r.Context().Value(userContextKey).(domain.User)
+// currentUser extrae el usuario ya autenticado desde Fiber locals.
+func currentUser(c *fiber.Ctx) domain.User {
+	user, _ := c.Locals(userContextKey).(domain.User)
 	return user
 }
 
@@ -95,16 +94,4 @@ func extractBearerToken(header string) string {
 	}
 
 	return strings.TrimSpace(header[7:])
-}
-
-// statusRecorder captura el codigo de respuesta para logging.
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-}
-
-// WriteHeader intercepta el status y luego delega al ResponseWriter real.
-func (s *statusRecorder) WriteHeader(status int) {
-	s.status = status
-	s.ResponseWriter.WriteHeader(status)
 }

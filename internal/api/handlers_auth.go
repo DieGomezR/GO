@@ -2,8 +2,7 @@
 package api
 
 import (
-	"net/http"
-
+	"github.com/gofiber/fiber/v2"
 	"tienda-go/internal/service"
 )
 
@@ -14,19 +13,18 @@ type loginRequest struct {
 }
 
 // handleHealth expone un endpoint minimo para verificar que el servicio esta vivo.
-func (a *API) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeData(w, http.StatusOK, map[string]any{
+func (a *API) handleHealth(c *fiber.Ctx) error {
+	return writeData(c, fiber.StatusOK, map[string]any{
 		"app": a.cfg.AppName,
 		"ok":  true,
 	})
 }
 
 // handleLogin autentica al usuario y devuelve token + perfil.
-func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleLogin(c *fiber.Ctx) error {
 	var request loginRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, err)
-		return
+	if err := decodeJSON(c, &request); err != nil {
+		return writeError(c, err)
 	}
 
 	result, err := a.auth.Login(service.LoginInput{
@@ -34,11 +32,10 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Password: request.Password,
 	})
 	if err != nil {
-		writeError(w, err)
-		return
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusOK, map[string]any{
+	return writeData(c, fiber.StatusOK, map[string]any{
 		"token":      result.Token,
 		"expires_at": result.ExpiresAt,
 		"user":       presentUser(result.User),
@@ -46,16 +43,15 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLogout invalida el token enviado en Authorization.
-func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if err := a.auth.Logout(extractBearerToken(r.Header.Get("Authorization"))); err != nil {
-		writeError(w, err)
-		return
+func (a *API) handleLogout(c *fiber.Ctx) error {
+	if err := a.auth.Logout(extractBearerToken(c.Get("Authorization"))); err != nil {
+		return writeError(c, err)
 	}
 
-	writeData(w, http.StatusOK, map[string]any{"message": "session closed"})
+	return writeData(c, fiber.StatusOK, map[string]any{"message": "session closed"})
 }
 
 // handleMe devuelve el usuario resuelto por el middleware de autenticacion.
-func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
-	writeData(w, http.StatusOK, presentUser(currentUser(r)))
+func (a *API) handleMe(c *fiber.Ctx) error {
+	return writeData(c, fiber.StatusOK, presentUser(currentUser(c)))
 }
